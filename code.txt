@@ -1,0 +1,245 @@
+
+#include <ESP8266WiFi.h>
+#include <BlynkSimpleEsp8266.h>
+
+// Set your Wi-Fi credentials
+char ssid[] = "sahas";
+char pass[] = "123456789";
+
+// Set your Blynk authentication token
+char auth[] = "OBv5Q8grHs3hVPxBCWRRmLMjI39U5tou";
+
+
+// bellow for lcd
+#include <Wire.h>               // i2c library
+#include <LiquidCrystal_I2C.h>  // lcd library
+#define lcdcol1 20              // big display
+#define lcdrow1 4               // big display
+
+#define lcdcol2 16  // small display
+#define lcdrow2 2   // small display
+
+LiquidCrystal_I2C lcd1(0x27, lcdcol1, lcdrow1);  // big display
+LiquidCrystal_I2C lcd2(0x25, lcdcol2, lcdrow2);  // small display
+
+#define sensorP1 D3  // pin connected to the current sensor Tx
+#define sensorP2 D4  // pin connected to the current sensor Rx
+
+#include <PZEM004Tv30.h>
+PZEM004Tv30 pzem(sensorP1, sensorP2);
+
+int buzzerPin = D0;   // pin connected to the buzzer
+int gasPin = D8;    // pin connected to the gas sensor
+int relayPin = D7;   // pin connected to the relay
+int bt = D5;   //set Swtch 0 connected pin
+int bt1= D6;   // set switch 1  connected pin
+float count = 0.000;  //counting value store
+int gasVal;     //gas value stored
+float svoltage;
+float sfrequency;
+float scurrent;
+float spower;
+float spf;
+float senergy;
+float totalP;   //total price
+float fixedP = 350;    // fixed price value
+float tax;   // calculate tax price
+float unPrice;   //calculate unit price
+
+void setup() {
+  Serial.begin(115200);  //serial communication
+
+  pinMode(buzzerPin , OUTPUT);
+  pinMode(gasPin, INPUT);    //for gas reading
+
+  pinMode(relayPin, OUTPUT);
+  pinMode(bt, INPUT_PULLUP);  // FOR INPUT set value
+  pinMode(bt1, INPUT_PULLUP);  // FOR INPUT set value
+
+  lcd1.begin(lcdcol1, lcdrow1);  // for lcd begin
+  lcd2.begin(lcdcol2, lcdrow2);  // for lcd begin
+
+
+  lcd1.init();
+  lcd2.init();
+
+  lcd1.backlight();  //backlight
+  lcd2.backlight();  //backlight
+
+  Blynk.begin(auth, ssid, pass);
+  
+}
+void loop() {
+  //int val = digitalRead(bt);
+  //Serial.print(val);
+
+  setkwh();
+  sensor();     //sensor reading function
+  Blynk.run();  //blynk starting
+  send();       // send value to blynk
+  display2();   // secoun display function
+  control();    //controlling the main switch
+  price();
+}
+
+
+void sensor() {
+
+
+  float voltage = pzem.voltage();
+  float frequency = pzem.frequency();
+  float current = pzem.current();
+  float power = pzem.power();
+  float energy = pzem.energy();
+  float pf = pzem.pf();
+
+
+
+  // assign value for send to iot
+  svoltage = voltage;
+  sfrequency = frequency;
+  scurrent = current;
+  spower = power;
+  spf = pf;
+  senergy = energy;
+
+
+
+  lcd1.setCursor(0, 0);
+  lcd1.print("Volt:");
+  lcd1.print(voltage, 1);
+  lcd1.print("V");
+
+
+  lcd1.setCursor(0, 1);
+  lcd1.print("Freq:");
+  lcd1.print(frequency, 2);
+  lcd1.print("Hz");
+
+
+  lcd1.setCursor(0, 2);
+  lcd1.print("Curr:");
+  lcd1.print(current, 2);
+  lcd1.print("A");
+
+
+  lcd1.setCursor(0, 3);
+  lcd1.print("Pow :");
+  lcd1.print(power, 2);
+  lcd1.print("W");
+
+
+  lcd1.setCursor(13, 0);
+  lcd1.print("PF :");
+  lcd1.print(pf, 1);
+
+  lcd1.setCursor(13, 1);
+  lcd1.print("Engery:");
+
+
+  lcd1.setCursor(14, 2);
+  lcd1.print(energy, 3);
+  
+
+  lcd1.setCursor(15, 3);;
+  lcd1.print("kWh");
+  
+
+  delay(100);
+}
+
+void send() {  // sending to iot
+
+  Blynk.virtualWrite(V4, svoltage);
+  Blynk.virtualWrite(V0, sfrequency);
+  Blynk.virtualWrite(V5, scurrent);
+  Blynk.virtualWrite(V9, spower);
+  Blynk.virtualWrite(V8, spf);
+  Blynk.virtualWrite(V1, senergy);
+  Blynk.virtualWrite(V2, totalP);
+  Blynk.virtualWrite(V3, tax);
+  Blynk.virtualWrite(V6, fixedP);
+  Blynk.virtualWrite(V7, unPrice);
+
+
+}
+
+
+void setkwh(){       //button value reading
+  if (digitalRead(bt) == 0) {
+    while (digitalRead(bt) == 0) {
+    }
+    count= count + 0.01;  // i = i + 1;
+    //Serial.println(count);
+  }
+
+  if (digitalRead(bt1) == 0) {
+    while (digitalRead(bt1) == 0) {
+    }
+    count = count - 0.01;  // i = i - 1;
+    //Serial.println(count);
+  }
+
+  
+} 
+
+void display2() {     // small display 
+  lcd2.setCursor(0, 0);
+  lcd2.print("Set Lim :");
+
+  lcd2.setCursor(9, 0);
+  lcd2.print(count);
+
+  lcd2.setCursor(13, 0);
+  lcd2.print("kWh");
+
+  delay(10);
+}
+
+void control(){   // main switch on off function
+
+  if(senergy >= count){
+
+    lcd2.setCursor(0, 1);
+    lcd2.print("L->OFF");
+    digitalWrite(relayPin, LOW);
+
+   
+  }else{
+
+    lcd2.setCursor(0, 1);
+    lcd2.print("L-> ON");
+    digitalWrite(relayPin, HIGH);
+
+  }
+
+}
+
+
+void price(){    //calculate the price and display
+ 
+  unPrice = senergy * 40 ;
+  tax = unPrice / 100 * 12.5;
+  totalP = tax + unPrice + fixedP;
+
+  lcd2.setCursor(7,1);
+  lcd2.print("RS=");
+  lcd2.print(totalP);
+
+}
+
+
+void gasSensor(){   // gas sensor
+
+
+  gasVal = digitalRead(gasPin);     // reading gas sensor values
+
+  if (gasVal == HIGH){      // buzzer on 
+    digitalWrite(buzzerPin , HIGH);
+    delay(50);
+    digitalWrite(buzzerPin , LOW);
+    delay(50);
+
+  }
+
+}
